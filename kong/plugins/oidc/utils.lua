@@ -80,15 +80,21 @@ function M.injectUser(user, oidcConfig)
   local userinfo = cjson.encode(user)
   clear_blacklist_headers(oidcConfig.auth_header_blacklist)
 
-  -- Strip out x-user headers for security
+  -- Strip out x-auth headers for security
   for header_key, header in pairs(ngx.req.get_headers()) do
     if string.find(header_key, 'x%-auth') then
       ngx.req.set_header(header_key, "")
     end
   end
 
+  for header_key, header in pairs(ngx.req.get_headers()) do
+    if string.find(header_key, 'x%-user') then
+      ngx.req.set_header(header_key, "")
+    end
+  end
+
   ngx.req.set_header("X-User-AccessToken", user.access_token)
-  -- ngx.req.set_header("X-Userinfo", ngx.encode_base64(userinfo))
+  ngx.req.set_header("X-Userinfo", ngx.encode_base64(userinfo))
 
   -- Clear consumer ID header
   ngx.req.set_header("X-Consumer-Id", "")
@@ -111,7 +117,9 @@ function M.injectUser(user, oidcConfig)
       if claim[2] ~= nil then
         header_name_prefix = string.gsub(" "..claim[1], "%W%l", string.upper):sub(2)
         header_name_suffix = string.gsub(" "..claim[2], "%W%l", string.upper):sub(2)
-        ngx.req.set_header("X-Auth-" .. header_name_prefix .. '-' .. header_name_suffix, user[claim[1]][claim[2]])
+        if user[claim[1]] and user[claim[1]][claim[2]] ~= nil then
+          ngx.req.set_header("X-Auth-" .. header_name_prefix .. '-' .. header_name_suffix, user[claim[1]][claim[2]])
+        end
       end
     end
   end
