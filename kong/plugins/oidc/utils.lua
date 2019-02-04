@@ -63,6 +63,8 @@ function M.get_options(config, ngx)
     auth_header_blacklist = config.auth_header_blacklist,
     downstream_claims = config.downstream_claims,
     consumer_id_claim = config.consumer_id_claim,
+    refresh_session_interval = config.refresh_session_interval,
+    iat_slack = 600,
   }
 end
 

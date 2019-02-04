@@ -22,6 +22,7 @@ return {
     user_service_endpoint = { type = "string" },
     auth_header_blacklist = { type = "array" },
     downstream_claims = { type = "array" },
-    consumer_id_claim = { type = "string", required = true, default = "sub" }
+    consumer_id_claim = { type = "string", required = true, default = "sub" },
+    refresh_session_interval = { type = "number", required = false, default = "86400" },
   }
 }
