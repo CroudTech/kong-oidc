@@ -30,14 +30,30 @@ function handle(oidcConfig)
   if oidcConfig.introspection_endpoint then
     response = introspect(oidcConfig)
     if response then
-      utils.injectUser(response, oidcConfig)
+      if (response.user) then
+        utils.injectUser(response.user, oidcConfig)
+      end
+      if (response.access_token) then
+        utils.injectAccessToken(response.access_token, oidcConfig)
+      end
+      if (response.id_token) then
+        utils.injectIDToken(response.id_token, oidcConfig)
+      end
     end
   end
 
   if response == nil then
     response = make_oidc(oidcConfig)
-    if response and response then
-      utils.injectUser(response, oidcConfig)
+    if response then
+      if (response.user) then
+        utils.injectUser(response.user, oidcConfig)
+      end
+      if (response.access_token) then
+        utils.injectAccessToken(response.access_token, oidcConfig)
+      end
+      if (response.id_token) then
+        utils.injectIDToken(response.id_token, oidcConfig)
+      end
     end
   end
 end
@@ -66,7 +82,10 @@ function introspect(oidcConfig)
       return nil
     end
     ngx.log(ngx.DEBUG, "OidcHandler introspect succeeded, requested path: " .. ngx.var.request_uri)
-    return res
+    return {
+      user=res,
+      access_token=utils.get_bearer_access_token()
+    }
   end
   return nil
 end

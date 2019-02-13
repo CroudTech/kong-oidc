@@ -74,6 +74,15 @@ function M.exit(httpStatusCode, message, ngxCode)
   ngx.exit(ngxCode)
 end
 
+function M.injectAccessToken(accessToken, oidcConfig)
+  ngx.req.set_header("X-Access-Token", accessToken)
+end
+
+function M.injectIDToken(idToken, oidcConfig)
+  local tokenStr = cjson.encode(idToken)
+  ngx.req.set_header("X-ID-Token", ngx.encode_base64(tokenStr))
+end
+
 function M.injectUser(user, oidcConfig)
   local tmp_user = user
   tmp_user.id = user.sub
@@ -81,34 +90,65 @@ function M.injectUser(user, oidcConfig)
   ngx.ctx.authenticated_credential = tmp_user
   local userinfo = cjson.encode(user)
   clear_blacklist_headers(oidcConfig.auth_header_blacklist)
+  strip_auth_headers()
 
-  -- Strip out x-auth headers for security
-  for header_key, header in pairs(ngx.req.get_headers()) do
-    if string.find(header_key, 'x%-auth') then
-      ngx.req.set_header(header_key, "")
-    end
-  end
-
-  for header_key, header in pairs(ngx.req.get_headers()) do
-    if string.find(header_key, 'x%-user') then
-      ngx.req.set_header(header_key, "")
-    end
-  end
-
-  ngx.req.set_header("X-User-AccessToken", user.access_token)
   ngx.req.set_header("X-Userinfo", ngx.encode_base64(userinfo))
 
-  -- Clear consumer ID header
-  ngx.req.set_header("X-Consumer-Id", "")
+  -- Add consumer id header
   if oidcConfig.consumer_id_claim ~= nil then
     local consumer_id_claim = split(oidcConfig.consumer_id_claim, '.')
     if consumer_id_claim[2] ~= nil then
       ngx.req.set_header("X-Consumer-Id", user[consumer_id_claim[1]][consumer_id_claim[2]])
     else
-      ngx.req.set_header("X-Consumer-Id", user.id_token[consumer_id_claim[1]])
+      ngx.req.set_header("X-Consumer-Id", user[consumer_id_claim[1]])
     end
   else
-    ngx.req.set_header("X-Consumer-Id", user.id_token.sub)
+    ngx.req.set_header("X-Consumer-Id", user.sub)
+  end
+
+  -- Add claims from user section of token
+  if(type(oidcConfig.downstream_claims) == "table") then
+    for i, claim in pairs(oidcConfig.downstream_claims) do
+      local claim = split(claim, '.')
+      if claim[2] ~= nil then
+        header_name_prefix = string.gsub(" "..claim[1], "%W%l", string.upper):sub(2)
+        header_name_suffix = string.gsub(" "..claim[2], "%W%l", string.upper):sub(2)
+        if user[claim[1]] and user[claim[1]][claim[2]] ~= nil then
+          ngx.req.set_header("X-Auth-" .. header_name_prefix .. '-' .. header_name_suffix, user[claim[1]][claim[2]])
+        end
+      else
+        header_name_prefix = string.gsub(" "..claim[1], "%W%l", string.upper):sub(2)
+        ngx.req.set_header("X-Auth-" .. header_name_prefix, user[claim[1]])
+      end
+    end
+  end
+end
+
+function M.oldinjectUser(user, oidcConfig)
+  local tmp_user = user
+  tmp_user.id = user.sub
+  tmp_user.username = user.preferred_username
+  ngx.ctx.authenticated_credential = tmp_user
+  ngx.log(ngx.DEBUG, "Token: " .. cjson.encode(user))
+  local userinfo = cjson.encode(user)
+  clear_blacklist_headers(oidcConfig.auth_header_blacklist)
+
+  -- Strip out x-auth headers for security
+  strip_auth_headers()
+
+  ngx.req.set_header("X-User-AccessToken", user.access_token)
+  ngx.req.set_header("X-Userinfo", ngx.encode_base64(userinfo))
+
+
+  if oidcConfig.consumer_id_claim ~= nil then
+    local consumer_id_claim = split(oidcConfig.consumer_id_claim, '.')
+    if consumer_id_claim[2] ~= nil then
+      ngx.req.set_header("X-Consumer-Id", user[consumer_id_claim[1]][consumer_id_claim[2]])
+    else
+      ngx.req.set_header("X-Consumer-Id", user[consumer_id_claim[1]])
+    end
+  else
+    ngx.req.set_header("X-Consumer-Id", user.sub)
   end
   ngx.req.set_header("Authorization", "Bearer " .. user.access_token);
 
@@ -122,12 +162,33 @@ function M.injectUser(user, oidcConfig)
         if user[claim[1]] and user[claim[1]][claim[2]] ~= nil then
           ngx.req.set_header("X-Auth-" .. header_name_prefix .. '-' .. header_name_suffix, user[claim[1]][claim[2]])
         end
+      else
+        header_name_prefix = string.gsub(" "..claim[1], "%W%l", string.upper):sub(2)
+        ngx.req.set_header("X-Auth-" .. header_name_prefix, user[claim[1]])
       end
     end
   end
   if oidcConfig.user_service_endpoint then
-    userservice.get_headers(user.id_token.sub, oidcConfig)
+    userservice.get_headers(user.sub, oidcConfig)
   end
+end
+
+-- Strip out x-auth headers for security
+function strip_auth_headers()
+  for header_key, header in pairs(ngx.req.get_headers()) do
+    if string.find(header_key, 'x%-auth') then
+      ngx.req.set_header(header_key, "")
+    end
+  end
+
+  for header_key, header in pairs(ngx.req.get_headers()) do
+    if string.find(header_key, 'x%-user') then
+      ngx.req.set_header(header_key, "")
+    end
+  end
+
+  -- Clear consumer ID header
+  ngx.req.set_header("X-Consumer-Id", "")
 end
 
 function split(inputstr, sep)
@@ -156,6 +217,17 @@ function M.has_bearer_access_token()
     local divider = header:find(' ')
     if string.lower(header:sub(0, divider-1)) == string.lower("Bearer") then
       return true
+    end
+  end
+  return false
+end
+
+function M.get_bearer_access_token()
+  local header = ngx.req.get_headers()['Authorization']
+  if header and header:find(" ") then
+    local divider = header:find(' ')
+    if string.lower(header:sub(0, divider-1)) == string.lower("Bearer") then
+      return header:sub(divider)
     end
   end
   return false
