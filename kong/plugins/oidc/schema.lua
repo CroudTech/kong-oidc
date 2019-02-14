@@ -24,5 +24,6 @@ return {
     downstream_claims = { type = "array" },
     consumer_id_claim = { type = "string", required = true, default = "sub" },
     refresh_session_interval = { type = "number", required = false, default = "86400" },
+    bearer_login_redirect = { type = "string", required = false },
   }
 }

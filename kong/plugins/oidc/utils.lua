@@ -65,6 +65,7 @@ function M.get_options(config, ngx)
     consumer_id_claim = config.consumer_id_claim,
     refresh_session_interval = config.refresh_session_interval,
     iat_slack = 600,
+    bearer_login_redirect = config.bearer_login_redirect
   }
 end
 
